@@ -34,11 +34,20 @@ def find_file(files_list, keyword):
 def normalize_colname(c):
     return str(c).strip().lower()
 
-def find_col(df, keyword):
+def find_col(df, keyword, exact=False):
+    """
+    查找列名
+    exact=True 时精确匹配
+    """
     key = keyword.strip().lower()
     for col in df.columns:
-        if key in normalize_colname(col):
-            return col
+        col_norm = normalize_colname(col)
+        if exact:
+            if col_norm == key:
+                return col
+        else:
+            if key in col_norm:
+                return col
     return None
 
 def find_sheet(xls, keyword):
@@ -71,11 +80,10 @@ def same_date_ymd(a, b):
     except Exception:
         return False
 
-
-def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw, ref_contract_col, ws, red_fill):
+def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw, ref_contract_col, ws, red_fill, exact=False):
     errors = 0
-    main_col = find_col(main_df, main_kw)
-    ref_col = find_col(ref_df, ref_kw)
+    main_col = find_col(main_df, main_kw, exact=exact)
+    ref_col = find_col(ref_df, ref_kw, exact=exact)
     if not main_col or not ref_col or not ref_contract_col:
         return 0
 
@@ -116,10 +124,8 @@ def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw, ref_
         ws.cell(excel_row, col_idx).fill = red_fill
     return errors
 
-
 # -------- 主比对逻辑函数 ----------
 def check_one_sheet(sheet_keyword):
-    """检查一个sheet（例如“二次”、“部分担保”、“随州”）"""
     start_time = time.time()
 
     xls_main = pd.ExcelFile(main_file)
@@ -155,12 +161,17 @@ def check_one_sheet(sheet_keyword):
     for idx, row in main_df.iterrows():
         if pd.isna(row.get(contract_col_main)):
             continue
+        # 放款明细
         for main_kw, ref_kw in mapping_fk.items():
             total_errors += compare_fields_and_mark(idx, row, main_df, main_kw, fk_df, ref_kw, contract_col_fk, ws, red_fill)
+        # 字段表
         for main_kw, ref_kw in mapping_zd.items():
-            total_errors += compare_fields_and_mark(idx, row, main_df, main_kw, zd_df, ref_kw, contract_col_zd, ws, red_fill)
+            exact_match = (main_kw == "城市经理")  # 仅城市经理列精确匹配
+            total_errors += compare_fields_and_mark(idx, row, main_df, main_kw, zd_df, ref_kw, contract_col_zd, ws, red_fill, exact=exact_match)
+        # 二次明细
         for main_kw, ref_kw in mapping_ec.items():
             total_errors += compare_fields_and_mark(idx, row, main_df, main_kw, ec_df, ref_kw, contract_col_ec, ws, red_fill)
+        # 重卡数据
         for main_kw, ref_kw in mapping_zk.items():
             total_errors += compare_fields_and_mark(idx, row, main_df, main_kw, zk_df, ref_kw, contract_col_zk, ws, red_fill)
 
@@ -190,7 +201,6 @@ def check_one_sheet(sheet_keyword):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     return total_errors, elapsed
-
 
 # -------- 读取文件 ----------
 main_file = find_file(uploaded_files, "记录表")
