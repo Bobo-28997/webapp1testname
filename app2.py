@@ -9,7 +9,7 @@ from openpyxl.styles import PatternFill
 from io import BytesIO
 from datetime import datetime
 
-st.title("📊 不担保人事用合同记录表自动审核系统（多Sheet版）")
+st.title("📊 模拟实际运用环境Project：人事用合同记录表自动审核系统（多Sheet版）")
 
 # -------- 上传文件 ----------
 uploaded_files = st.file_uploader(
