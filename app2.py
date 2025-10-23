@@ -1,5 +1,5 @@
 # =====================================
-# Streamlit Web App: 不担保人事用合同记录表自动审核（含多sheet检查 + 进度条 + 耗时统计）
+# Streamlit Web App: 模拟Project：人事用合同记录表自动审核（含多sheet检查 + 进度条 + 耗时统计）
 # =====================================
 import streamlit as st
 import pandas as pd
