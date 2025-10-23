@@ -186,7 +186,7 @@ def check_one_sheet(sheet_keyword):
     st.download_button(
         label=f"📥 下载 {sheet_keyword} 审核标注版",
         data=output,
-        file_name=f"不担保_{sheet_keyword}_审核标注版.xlsx",
+        file_name=f"记录表_{sheet_keyword}_审核标注版.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     return total_errors, elapsed
