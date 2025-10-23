@@ -199,10 +199,19 @@ zd_file   = find_file(uploaded_files, "字段")
 ec_file   = find_file(uploaded_files, "二次明细")
 zk_file   = find_file(uploaded_files, "重卡数据")
 
-fk_df = pd.read_excel(find_sheet(pd.ExcelFile(fk_file), "本司"), fk_file)
-zd_df = pd.read_excel(find_sheet(pd.ExcelFile(zd_file), "重卡"), zd_file)
-ec_df = pd.read_excel(ec_file)
-zk_df = pd.read_excel(zk_file)
+# 放款明细
+fk_xls = pd.ExcelFile(fk_file)
+fk_sheet = find_sheet(fk_xls, "本司")
+fk_df = pd.read_excel(fk_xls, sheet_name=fk_sheet, header=0)
+
+# 字段表
+zd_xls = pd.ExcelFile(zd_file)
+zd_sheet = find_sheet(zd_xls, "重卡")
+zd_df = pd.read_excel(zd_xls, sheet_name=zd_sheet, header=0)
+
+# 二次明细、重卡数据
+ec_df = pd.read_excel(ec_file, header=0)
+zk_df = pd.read_excel(zk_file, header=0)
 
 contract_col_fk = find_col(fk_df, "合同")
 contract_col_zd = find_col(zd_df, "合同")
