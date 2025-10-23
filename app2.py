@@ -1,5 +1,5 @@
 # =====================================
-# Streamlit Web App: 模拟Project：人事用合同记录表自动审核（含多sheet检查 + 精确匹配 + 跳过统计 + 总耗时）
+# Streamlit Web App: 模拟Project：人事用合同记录表自动审核（含容差 + 精确匹配 + 跳过统计 + 总耗时）
 # =====================================
 import streamlit as st
 import pandas as pd
@@ -71,6 +71,7 @@ def same_date_ymd(a, b):
     except Exception:
         return False
 
+# -------- 主比对函数 ----------
 def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw,
                             ref_contract_col, ws, red_fill, exact=False,
                             skip_counter=None):
@@ -91,7 +92,7 @@ def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw,
     ref_val = ref_rows.iloc[0][ref_col]
     main_val = row.get(main_col)
 
-    # ✅ 若是城市经理列，且字段表为空 → 跳过并统计
+    # ✅ 若是城市经理列且字段表为空 → 跳过并统计
     if main_kw == "城市经理":
         if pd.isna(ref_val) or str(ref_val).strip() in ["", "-", "nan", "none", "null"]:
             if skip_counter is not None:
@@ -101,34 +102,44 @@ def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw,
     if pd.isna(main_val) and pd.isna(ref_val):
         return 0
 
-    # 日期或数值比较
+    # -------- 日期或数值比较 --------
     if any(k in main_kw for k in ["日期", "时间"]) or any(k in ref_kw for k in ["日期", "时间"]):
         if not same_date_ymd(main_val, ref_val):
             errors = 1
     else:
         main_num = normalize_num(main_val)
         ref_num = normalize_num(ref_val)
+
+        # ✅ 数值类型比较
         if isinstance(main_num, (int, float)) and isinstance(ref_num, (int, float)):
-            if abs(main_num - ref_num) > 1e-6:
-                errors = 1
+            diff = abs(main_num - ref_num)
+
+            # ✅ 特殊容差逻辑：保证金比例允许 ±0.005 差距
+            if main_kw == "保证金比例" and ref_kw == "保证金比例_2":
+                if diff > 0.005:
+                    errors = 1
+            else:
+                if diff > 1e-6:
+                    errors = 1
+
+        # 字符串类型比较
         else:
             main_str = str(main_num).strip().lower().replace(".0", "")
             ref_str = str(ref_num).strip().lower().replace(".0", "")
             if main_str != ref_str:
                 errors = 1
 
-    # 标红
+    # -------- 标红 --------
     if errors:
         excel_row = row_idx + 3
         col_idx = list(main_df.columns).index(main_col) + 1
         ws.cell(excel_row, col_idx).fill = red_fill
+
     return errors
 
 # -------- 主检查函数 ----------
 def check_one_sheet(sheet_keyword):
-    """检查一个sheet（例如“二次”、“部分担保”、“随州”）"""
     start_time = time.time()
-
     xls_main = pd.ExcelFile(main_file)
     try:
         target_sheet = find_sheet(xls_main, sheet_keyword)
