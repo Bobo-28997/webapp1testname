@@ -249,6 +249,6 @@ st.success(f"✅ 审核完成，共发现 {total_errors} 处不一致。")
 st.download_button(
     label="📥 下载审核标注版 Excel",
     data=output,
-    file_name="不担保人事用合同记录表_审核标注版.xlsx",
+    file_name="部分担保人事用合同记录表_审核标注版.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
