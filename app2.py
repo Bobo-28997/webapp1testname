@@ -193,7 +193,7 @@ def check_one_sheet(sheet_keyword):
 
 
 # -------- 读取文件 ----------
-main_file = find_file(uploaded_files, "不担保")
+main_file = find_file(uploaded_files, "记录表")
 fk_file   = find_file(uploaded_files, "放款明细")
 zd_file   = find_file(uploaded_files, "字段")
 ec_file   = find_file(uploaded_files, "二次明细")
