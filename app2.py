@@ -13,7 +13,7 @@ st.title("📊 模拟实际运用环境Project：人事用合同记录表自动�
 
 # -------- 上传文件 ----------
 uploaded_files = st.file_uploader(
-    "请上传以下文件：合同记录表、放款明细、字段、二次明细、重卡数据",
+    "请上传以下文件：记录表、放款明细、字段、二次明细、重卡数据",
     type="xlsx",
     accept_multiple_files=True
 )
@@ -131,7 +131,7 @@ def check_one_sheet(sheet_keyword):
 
     main_df = pd.read_excel(xls_main, sheet_name=target_sheet, header=1)
 
-    output_path = f"不担保_{sheet_keyword}_审核标注版.xlsx"
+    output_path = f"记录表_{sheet_keyword}_审核标注版.xlsx"
     empty_row = pd.DataFrame([[""] * len(main_df.columns)], columns=main_df.columns)
     main_df_with_blank = pd.concat([empty_row, main_df], ignore_index=True)
     main_df_with_blank.to_excel(output_path, index=False)
