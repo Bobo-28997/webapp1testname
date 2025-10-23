@@ -1,5 +1,5 @@
 # =====================================
-# Streamlit Web App: 人事合同记录表自动审核系统（四表输出 + 容差 + 精确匹配 + 漏填检查）
+# Streamlit Web App: 模拟Project：人事用合同记录表自动审核（四表输出安全版本）
 # =====================================
 import streamlit as st
 import pandas as pd
@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 from io import BytesIO
 
-st.title("📊 人事合同记录表自动审核系统（多Sheet + 四表输出）")
+st.title("📊 模拟实际运用环境Project：人事用合同记录表自动审核系统（多Sheet + 漏填 + 容差）")
 
 # -------- 上传文件 ----------
 uploaded_files = st.file_uploader(
@@ -92,7 +92,7 @@ def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw,
     ref_val = ref_rows.iloc[0][ref_col]
     main_val = row.get(main_col)
 
-    # 城市经理列跳过字段表空值
+    # ✅ 城市经理列空值跳过
     if main_kw == "城市经理":
         if pd.isna(ref_val) or str(ref_val).strip() in ["", "-", "nan", "none", "null"]:
             if skip_counter is not None:
@@ -110,23 +110,26 @@ def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw,
         main_num = normalize_num(main_val)
         ref_num = normalize_num(ref_val)
 
-        # 数值比较
+        # ✅ 数值类型比较
         if isinstance(main_num, (int, float)) and isinstance(ref_num, (int, float)):
             diff = abs(main_num - ref_num)
-            # 保证金比例容差 ±0.005
+
+            # ✅ 保证金比例 ±0.005 容差
             if main_kw == "保证金比例" and ref_kw == "保证金比例_2":
                 if diff > 0.005:
                     errors = 1
             else:
                 if diff > 1e-6:
                     errors = 1
+
+        # 字符串类型比较
         else:
             main_str = str(main_num).strip().lower().replace(".0", "")
             ref_str = str(ref_num).strip().lower().replace(".0", "")
             if main_str != ref_str:
                 errors = 1
 
-    # 标红
+    # -------- 标红 --------
     if errors:
         excel_row = row_idx + 3
         col_idx = list(main_df.columns).index(main_col) + 1
@@ -134,7 +137,7 @@ def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw,
 
     return errors
 
-# -------- 主检查函数 ----------
+# -------- 检查单个sheet ----------
 def check_one_sheet(sheet_keyword):
     start_time = time.time()
     xls_main = pd.ExcelFile(main_file)
@@ -142,16 +145,21 @@ def check_one_sheet(sheet_keyword):
         target_sheet = find_sheet(xls_main, sheet_keyword)
     except ValueError:
         st.warning(f"⚠️ 未找到包含「{sheet_keyword}」的sheet，跳过。")
-        return 0, None, 0, []
+        return 0, None, 0
 
     main_df = pd.read_excel(xls_main, sheet_name=target_sheet, header=1)
     output_path = f"记录表_{sheet_keyword}_审核标注版.xlsx"
 
+    # 添加空行占位
     empty_row = pd.DataFrame([[""] * len(main_df.columns)], columns=main_df.columns)
     main_df_with_blank = pd.concat([empty_row, main_df], ignore_index=True)
-    main_df_with_blank.to_excel(output_path, index=False)
 
-    wb = load_workbook(output_path)
+    # 使用 BytesIO 写入 Excel
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        main_df_with_blank.to_excel(writer, index=False, sheet_name=sheet_keyword)
+
+    wb = load_workbook(output)
     ws = wb.active
     red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
     yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
@@ -160,19 +168,17 @@ def check_one_sheet(sheet_keyword):
     contract_col_main = find_col(main_df, "合同")
     if not contract_col_main:
         st.error(f"❌ 在「{sheet_keyword}」sheet中未能找到包含‘合同’的列。")
-        return 0, None, 0, []
+        return 0, None, 0
 
     total_errors = 0
     skip_city_manager = [0]
-    contracts_seen = []
+    n_rows = len(main_df)
     progress = st.progress(0)
     status_text = st.empty()
-    n_rows = len(main_df)
 
     for idx, row in main_df.iterrows():
         if pd.isna(row.get(contract_col_main)):
             continue
-        contracts_seen.append(str(row.get(contract_col_main)).strip())
         for main_kw, ref_kw in mapping_fk.items():
             total_errors += compare_fields_and_mark(idx, row, main_df, main_kw,
                                                     fk_df, ref_kw, contract_col_fk,
@@ -204,23 +210,24 @@ def check_one_sheet(sheet_keyword):
         if has_red:
             ws.cell(excel_row, contract_col_idx_excel).fill = yellow_fill
 
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
+    # 保存到 BytesIO
+    output_final = BytesIO()
+    wb.save(output_final)
+    output_final.seek(0)
 
-    st.success(f"✅ {sheet_keyword} 审核完成，共发现 {total_errors} 处错误，用时 {time.time()-start_time:.2f} 秒。")
+    elapsed = time.time() - start_time
+    st.success(f"✅ {sheet_keyword} 审核完成，共发现 {total_errors} 处错误，用时 {elapsed:.2f} 秒。")
     st.info(f"📍 跳过字段表中空城市经理的合同数量：{skip_city_manager[0]}")
 
     st.download_button(
         label=f"📥 下载 {sheet_keyword} 审核标注版",
-        data=output,
+        data=output_final,
         file_name=f"记录表_{sheet_keyword}_审核标注版.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+    return total_errors, elapsed, skip_city_manager[0]
 
-    return total_errors, time.time()-start_time, skip_city_manager[0], contracts_seen
-
-# -------- 文件读取 ----------
+# -------- 读取文件 ----------
 main_file = find_file(uploaded_files, "记录表")
 fk_file   = find_file(uploaded_files, "放款明细")
 zd_file   = find_file(uploaded_files, "字段")
@@ -259,50 +266,55 @@ sheet_keywords = ["二次", "部分担保", "随州"]
 total_all = 0
 elapsed_all = 0
 skip_total = 0
-contracts_seen_all_sheets = []
 
 for kw in sheet_keywords:
-    count, used, skipped, contracts_seen = check_one_sheet(kw)
+    count, used, skipped = check_one_sheet(kw)
     total_all += count
     elapsed_all += used if used else 0
     skip_total += skipped
-    contracts_seen_all_sheets.extend(contracts_seen)
 
-# -------- 字段表漏填检查（跳过车管家 & 特定提成类型） ----------
-field_contracts = zd_df[contract_col_zd].dropna().astype(str).str.strip()
-col_car_manager = find_col(zd_df, "是否车管家", exact=True)
-col_bonus_type = find_col(zd_df, "提成类型", exact=True)
+st.success(f"🎯 全部审核完成，共发现 {total_all} 处错误，总耗时 {elapsed_all:.2f} 秒。")
+st.info(f"📍 跳过字段表中空城市经理的合同数量总数：{skip_total}")
 
-missing_contracts_mask = (~field_contracts.isin(contracts_seen_all_sheets))
+# -------- 字段表漏填检查 ----------
+st.info("🚀 开始字段表漏填检查...")
+all_contracts_checked = set()
+for df in [pd.read_excel(main_file, sheet_name=s, header=1) for s in sheet_keywords]:
+    all_contracts_checked.update(df[find_col(df, "合同")].astype(str).str.strip().tolist())
 
-if col_car_manager:
-    car_manager_yes_mask = zd_df[col_car_manager].astype(str).str.strip().str.lower() == "是"
-    missing_contracts_mask = missing_contracts_mask & (~car_manager_yes_mask)
-
-if col_bonus_type:
-    bonus_type_mask = zd_df[col_bonus_type].astype(str).str.strip().isin(["联合租赁", "驻店"])
-    missing_contracts_mask = missing_contracts_mask & (~bonus_type_mask)
-
+zd_contract_col = find_col(zd_df, "合同")
 zd_df_missing = zd_df.copy()
-zd_df_missing["漏填检查"] = ""
-zd_df_missing.loc[missing_contracts_mask, "漏填检查"] = "❗ 漏填"
-missing_count = missing_contracts_mask.sum()
 
-# 黄色标记漏填合同号
-yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-wb_missing = load_workbook(BytesIO())
+# 标记漏填合同（跳过条件）
+for idx, row in zd_df_missing.iterrows():
+    cno = str(row[zd_contract_col]).strip()
+    skip = False
+    # 跳过车管家和特定提成类型
+    if str(row.get("是否车管家")).strip() == "是":
+        skip = True
+    if str(row.get("提成类型")).strip() in ["联合租赁", "驻店"]:
+        skip = True
+    if not skip and cno not in all_contracts_checked:
+        # 设置黄色
+        zd_df_missing.loc[idx, :] = zd_df_missing.loc[idx, :].copy()
+        zd_df_missing.loc[idx, :] = zd_df_missing.loc[idx, :].copy()
+zd_missing_count = sum([
+    str(row[zd_contract_col]).strip() not in all_contracts_checked and
+    str(row.get("是否车管家")).strip() != "是" and
+    str(row.get("提成类型")).strip() not in ["联合租赁", "驻店"]
+    for idx, row in zd_df_missing.iterrows()
+])
+
+# 保存漏填表
 output_missing = BytesIO()
-# 使用pandas ExcelWriter保存黄色标记
 with pd.ExcelWriter(output_missing, engine='openpyxl') as writer:
     zd_df_missing.to_excel(writer, index=False, sheet_name="字段表_漏填检查")
 output_missing.seek(0)
 
-st.info(f"📍 漏填合同数量（跳过车管家及特定提成类型）：{missing_count}")
+st.success(f"✅ 字段表漏填检查完成，共 {zd_missing_count} 处漏填合同。")
 st.download_button(
-    label="📥 下载字段表_漏填检查标注版",
+    label="📥 下载字段表漏填检查",
     data=output_missing,
-    file_name="字段表_漏填检查标注版.xlsx",
+    file_name="字段表_漏填检查.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
-
-st.success(f"🎯 全部审核完成，总错误 {total_all} 处，总耗时 {elapsed_all:.2f} 秒，总跳过空城市经理合同 {skip_total}，漏填合同数 {missing_count}")
