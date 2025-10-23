@@ -13,7 +13,7 @@ st.title("📊 模拟实际运用环境Project：人事用合同记录表自动�
 
 # -------- 上传文件 ----------
 uploaded_files = st.file_uploader(
-    "请上传以下文件：不担保表、放款明细、字段、二次明细、重卡数据",
+    "请上传以下文件：合同记录表、放款明细、字段、二次明细、重卡数据",
     type="xlsx",
     accept_multiple_files=True
 )
