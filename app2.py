@@ -1,10 +1,10 @@
 # =====================================
-# Streamlit Web App: 模拟Project：人事用合同记录表自动审核（含容差 + 精确匹配 + 跳过统计 + 总耗时）
+# Streamlit Web App: 模拟Project：人事用合同记录表自动审核（含容差 + 精确匹配 + 跳过统计 + 总耗时 + 漏填检查）
 # =====================================
 import streamlit as st
 import pandas as pd
 import time
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill
 from io import BytesIO
 
@@ -145,7 +145,7 @@ def check_one_sheet(sheet_keyword):
         target_sheet = find_sheet(xls_main, sheet_keyword)
     except ValueError:
         st.warning(f"⚠️ 未找到包含「{sheet_keyword}」的sheet，跳过。")
-        return 0, None, 0
+        return 0, None, 0, set()
 
     main_df = pd.read_excel(xls_main, sheet_name=target_sheet, header=1)
     output_path = f"记录表_{sheet_keyword}_审核标注版.xlsx"
@@ -163,17 +163,21 @@ def check_one_sheet(sheet_keyword):
     contract_col_main = find_col(main_df, "合同")
     if not contract_col_main:
         st.error(f"❌ 在「{sheet_keyword}」sheet中未能找到包含‘合同’的列。")
-        return 0, None, 0
+        return 0, None, 0, set()
 
     total_errors = 0
     skip_city_manager = [0]
     progress = st.progress(0)
     status_text = st.empty()
     n_rows = len(main_df)
+    contracts_in_sheet = set()  # 本 sheet 的合同号集合
 
     for idx, row in main_df.iterrows():
         if pd.isna(row.get(contract_col_main)):
             continue
+        contract_no = str(row.get(contract_col_main)).strip()
+        contracts_in_sheet.add(contract_no)
+
         for main_kw, ref_kw in mapping_fk.items():
             total_errors += compare_fields_and_mark(idx, row, main_df, main_kw,
                                                     fk_df, ref_kw, contract_col_fk,
@@ -209,8 +213,7 @@ def check_one_sheet(sheet_keyword):
     wb.save(output)
     output.seek(0)
 
-    elapsed = time.time() - start_time
-    st.success(f"✅ {sheet_keyword} 审核完成，共发现 {total_errors} 处错误，用时 {elapsed:.2f} 秒。")
+    st.success(f"✅ {sheet_keyword} 审核完成，共发现 {total_errors} 处错误，用时 {time.time()-start_time:.2f} 秒。")
     st.info(f"📍 跳过字段表中空城市经理的合同数量：{skip_city_manager[0]}")
 
     st.download_button(
@@ -219,7 +222,7 @@ def check_one_sheet(sheet_keyword):
         file_name=f"记录表_{sheet_keyword}_审核标注版.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    return total_errors, elapsed, skip_city_manager[0]
+    return total_errors, time.time()-start_time, skip_city_manager[0], contracts_in_sheet
 
 # -------- 文件读取 ----------
 main_file = find_file(uploaded_files, "记录表")
@@ -261,12 +264,44 @@ sheet_keywords = ["二次", "部分担保", "随州"]
 total_all = 0
 elapsed_all = 0
 skip_total = 0
+contracts_seen_all_sheets = set()  # 汇总三张 sheet 的合同号
 
 for kw in sheet_keywords:
-    count, used, skipped = check_one_sheet(kw)
+    count, used, skipped, contracts_in_sheet = check_one_sheet(kw)
     total_all += count
     elapsed_all += used if used else 0
     skip_total += skipped
+    contracts_seen_all_sheets.update(contracts_in_sheet)
 
 st.success(f"🎯 全部审核完成，共发现 {total_all} 处错误，总耗时 {elapsed_all:.2f} 秒。")
 st.info(f"📍 跳过字段表中空城市经理的合同数量总数：{skip_total}")
+
+# -------- 字段表漏填检查 ----------
+field_contracts = zd_df[contract_col_zd].dropna().astype(str).str.strip()
+missing_contracts_mask = ~field_contracts.isin(contracts_seen_all_sheets)
+zd_df_missing = zd_df.copy()
+zd_df_missing["漏填检查"] = ""
+zd_df_missing.loc[missing_contracts_mask, "漏填检查"] = "❗ 漏填"
+
+# 写入 Excel 并标黄色
+yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+output_wb = Workbook()
+ws = output_wb.active
+
+for r_idx, row in enumerate(zd_df_missing.itertuples(index=False), start=1):
+    for c_idx, value in enumerate(row, start=1):
+        ws.cell(r_idx, c_idx, value)
+        if c_idx == list(zd_df_missing.columns).index("漏填检查")+1 and value == "❗ 漏填":
+            ws.cell(r_idx, c_idx).fill = yellow_fill
+
+output_stream = BytesIO()
+output_wb.save(output_stream)
+output_stream.seek(0)
+
+st.download_button(
+    label="📥 下载字段表漏填标注版",
+    data=output_stream,
+    file_name="字段表_漏填标注版.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
