@@ -1,5 +1,5 @@
 # =====================================
-# Streamlit Web App: 模拟Project：人事用合同记录表自动审核（含多sheet检查 + 进度条 + 耗时统计）
+# Streamlit Web App: 模拟Project：人事用合同记录表自动审核（含多sheet检查 + 精确匹配 + 跳过统计 + 总耗时）
 # =====================================
 import streamlit as st
 import pandas as pd
@@ -7,7 +7,6 @@ import time
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 from io import BytesIO
-from datetime import datetime
 
 st.title("📊 模拟实际运用环境Project：人事用合同记录表自动审核系统（多Sheet版）")
 
@@ -35,19 +34,11 @@ def normalize_colname(c):
     return str(c).strip().lower()
 
 def find_col(df, keyword, exact=False):
-    """
-    查找列名
-    exact=True 时精确匹配
-    """
     key = keyword.strip().lower()
     for col in df.columns:
-        col_norm = normalize_colname(col)
-        if exact:
-            if col_norm == key:
-                return col
-        else:
-            if key in col_norm:
-                return col
+        cname = normalize_colname(col)
+        if (exact and cname == key) or (not exact and key in cname):
+            return col
     return None
 
 def find_sheet(xls, keyword):
@@ -80,7 +71,9 @@ def same_date_ymd(a, b):
     except Exception:
         return False
 
-def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw, ref_contract_col, ws, red_fill, exact=False):
+def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw,
+                            ref_contract_col, ws, red_fill, exact=False,
+                            skip_counter=None):
     errors = 0
     main_col = find_col(main_df, main_kw, exact=exact)
     ref_col = find_col(ref_df, ref_kw, exact=exact)
@@ -97,6 +90,13 @@ def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw, ref_
 
     ref_val = ref_rows.iloc[0][ref_col]
     main_val = row.get(main_col)
+
+    # ✅ 若是城市经理列，且字段表为空 → 跳过并统计
+    if main_kw == "城市经理":
+        if pd.isna(ref_val) or str(ref_val).strip() in ["", "-", "nan", "none", "null"]:
+            if skip_counter is not None:
+                skip_counter[0] += 1
+            return 0
 
     if pd.isna(main_val) and pd.isna(ref_val):
         return 0
@@ -124,8 +124,9 @@ def compare_fields_and_mark(row_idx, row, main_df, main_kw, ref_df, ref_kw, ref_
         ws.cell(excel_row, col_idx).fill = red_fill
     return errors
 
-# -------- 主比对逻辑函数 ----------
+# -------- 主检查函数 ----------
 def check_one_sheet(sheet_keyword):
+    """检查一个sheet（例如“二次”、“部分担保”、“随州”）"""
     start_time = time.time()
 
     xls_main = pd.ExcelFile(main_file)
@@ -133,11 +134,11 @@ def check_one_sheet(sheet_keyword):
         target_sheet = find_sheet(xls_main, sheet_keyword)
     except ValueError:
         st.warning(f"⚠️ 未找到包含「{sheet_keyword}」的sheet，跳过。")
-        return 0, None
+        return 0, None, 0
 
     main_df = pd.read_excel(xls_main, sheet_name=target_sheet, header=1)
-
     output_path = f"记录表_{sheet_keyword}_审核标注版.xlsx"
+
     empty_row = pd.DataFrame([[""] * len(main_df.columns)], columns=main_df.columns)
     main_df_with_blank = pd.concat([empty_row, main_df], ignore_index=True)
     main_df_with_blank.to_excel(output_path, index=False)
@@ -151,9 +152,10 @@ def check_one_sheet(sheet_keyword):
     contract_col_main = find_col(main_df, "合同")
     if not contract_col_main:
         st.error(f"❌ 在「{sheet_keyword}」sheet中未能找到包含‘合同’的列。")
-        return 0, None
+        return 0, None, 0
 
     total_errors = 0
+    skip_city_manager = [0]
     progress = st.progress(0)
     status_text = st.empty()
     n_rows = len(main_df)
@@ -161,21 +163,25 @@ def check_one_sheet(sheet_keyword):
     for idx, row in main_df.iterrows():
         if pd.isna(row.get(contract_col_main)):
             continue
-        # 放款明细
         for main_kw, ref_kw in mapping_fk.items():
-            total_errors += compare_fields_and_mark(idx, row, main_df, main_kw, fk_df, ref_kw, contract_col_fk, ws, red_fill)
-        # 字段表
+            total_errors += compare_fields_and_mark(idx, row, main_df, main_kw,
+                                                    fk_df, ref_kw, contract_col_fk,
+                                                    ws, red_fill)
         for main_kw, ref_kw in mapping_zd.items():
-            exact_match = (main_kw == "城市经理")  # 仅城市经理列精确匹配
-            total_errors += compare_fields_and_mark(idx, row, main_df, main_kw, zd_df, ref_kw, contract_col_zd, ws, red_fill, exact=exact_match)
-        # 二次明细
+            exact_match = (main_kw == "城市经理")
+            total_errors += compare_fields_and_mark(idx, row, main_df, main_kw,
+                                                    zd_df, ref_kw, contract_col_zd,
+                                                    ws, red_fill, exact=exact_match,
+                                                    skip_counter=skip_city_manager)
         for main_kw, ref_kw in mapping_ec.items():
-            total_errors += compare_fields_and_mark(idx, row, main_df, main_kw, ec_df, ref_kw, contract_col_ec, ws, red_fill)
-        # 重卡数据
+            total_errors += compare_fields_and_mark(idx, row, main_df, main_kw,
+                                                    ec_df, ref_kw, contract_col_ec,
+                                                    ws, red_fill)
         for main_kw, ref_kw in mapping_zk.items():
-            total_errors += compare_fields_and_mark(idx, row, main_df, main_kw, zk_df, ref_kw, contract_col_zk, ws, red_fill)
+            total_errors += compare_fields_and_mark(idx, row, main_df, main_kw,
+                                                    zk_df, ref_kw, contract_col_zk,
+                                                    ws, red_fill)
 
-        # 更新进度条
         progress.progress((idx + 1) / n_rows)
         if (idx + 1) % 10 == 0 or idx + 1 == n_rows:
             status_text.text(f"正在检查「{sheet_keyword}」... {idx+1}/{n_rows} 行")
@@ -194,32 +200,29 @@ def check_one_sheet(sheet_keyword):
 
     elapsed = time.time() - start_time
     st.success(f"✅ {sheet_keyword} 审核完成，共发现 {total_errors} 处错误，用时 {elapsed:.2f} 秒。")
+    st.info(f"📍 跳过字段表中空城市经理的合同数量：{skip_city_manager[0]}")
+
     st.download_button(
         label=f"📥 下载 {sheet_keyword} 审核标注版",
         data=output,
         file_name=f"记录表_{sheet_keyword}_审核标注版.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    return total_errors, elapsed
+    return total_errors, elapsed, skip_city_manager[0]
 
-# -------- 读取文件 ----------
+# -------- 文件读取 ----------
 main_file = find_file(uploaded_files, "记录表")
 fk_file   = find_file(uploaded_files, "放款明细")
 zd_file   = find_file(uploaded_files, "字段")
 ec_file   = find_file(uploaded_files, "二次明细")
 zk_file   = find_file(uploaded_files, "重卡数据")
 
-# 放款明细
 fk_xls = pd.ExcelFile(fk_file)
-fk_sheet = find_sheet(fk_xls, "本司")
-fk_df = pd.read_excel(fk_xls, sheet_name=fk_sheet, header=0)
+fk_df = pd.read_excel(fk_xls, sheet_name=find_sheet(fk_xls, "本司"), header=0)
 
-# 字段表
 zd_xls = pd.ExcelFile(zd_file)
-zd_sheet = find_sheet(zd_xls, "重卡")
-zd_df = pd.read_excel(zd_xls, sheet_name=zd_sheet, header=0)
+zd_df = pd.read_excel(zd_xls, sheet_name=find_sheet(zd_xls, "重卡"), header=0)
 
-# 二次明细、重卡数据
 ec_df = pd.read_excel(ec_file, header=0)
 zk_df = pd.read_excel(zk_file, header=0)
 
@@ -239,16 +242,20 @@ mapping_zd = {
 mapping_ec = {"二次时间": "出本流程时间"}
 mapping_zk = {"结清日期": "核销"}
 
-# -------- 三个sheet轮流检查 ----------
+# -------- 多sheet检查 ----------
 st.info("🚀 开始多sheet检查，请耐心等待...")
 t0 = time.time()
 
 sheet_keywords = ["二次", "部分担保", "随州"]
 total_all = 0
 elapsed_all = 0
+skip_total = 0
+
 for kw in sheet_keywords:
-    count, used = check_one_sheet(kw)
+    count, used, skipped = check_one_sheet(kw)
     total_all += count
     elapsed_all += used if used else 0
+    skip_total += skipped
 
 st.success(f"🎯 全部审核完成，共发现 {total_all} 处错误，总耗时 {elapsed_all:.2f} 秒。")
+st.info(f"📍 跳过字段表中空城市经理的合同数量总数：{skip_total}")
