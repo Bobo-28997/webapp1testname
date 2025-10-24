@@ -309,8 +309,8 @@ output_wb.save(output_stream)
 output_stream.seek(0)
 
 st.download_button(
-    label="📥 下载字段表漏填标注版（已跳过车管家）",
+    label="📥 下载字段表漏填标注版（跳过车管家，驻店和联合租赁）",
     data=output_stream,
-    file_name="字段表_漏填标注版_跳过车管家.xlsx",
+    file_name="字段表_漏填标注版_跳过车管家驻店联合租赁.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
