@@ -7,6 +7,7 @@ import pandas as pd
 import time
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill
+from openpyxl.utils.dataframe import dataframe_to_rows # <--- 添加或确保这一行存在
 from io import BytesIO
 
 def normalize_contract_key(series: pd.Series) -> pd.Series:
@@ -392,30 +393,63 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict):
         key=f"download_{sheet_keyword}" # 增加key避免streamlit重跑问题
     )
 
- # 11. (新) 导出仅含错误行的文件
+    # 11. (新) 导出仅含错误行的文件 (带标红)
     if row_has_error.any():
         try:
-            # 1. 使用 row_has_error 过滤 merged_df
-            # 2. 使用 original_cols_list (在第 365 行已定义) 来确保只保留原始列
+            # 1. 获取仅含错误行的 DataFrame (只保留原始列)
+            #    (original_cols_list 已在第 365 行定义)
             df_errors_only = merged_df.loc[row_has_error, original_cols_list].copy()
             
-            # 2. 创建一个新的 BytesIO 用于导出
-            output_errors_only = BytesIO()
+            # 2. 关键：创建 "原始行索引" 到 "新Excel行号" 的映射
+            #    我们获取所有出错行的 __ROW_IDX__
+            original_indices_with_error = merged_df.loc[row_has_error, '__ROW_IDX__']
             
-            # 3. 将 "仅错误" DataFrame 存入
-            #    注意：这里我们不需要保留原始的空行，所以直接 to_excel
-            df_errors_only.to_excel(output_errors_only, index=False, engine='openpyxl')
+            #    创建映射: { 原始索引 : 新的Excel行号 }
+            #    (enumerate start=2, 因为 Excel 行 1 是表头, 数据从行 2 开始)
+            original_idx_to_new_excel_row = {
+                original_idx: new_row_num 
+                for new_row_num, original_idx in enumerate(original_indices_with_error, start=2)
+            }
+
+            # 3. 创建一个新的工作簿(Workbook)
+            wb_errors = Workbook()
+            ws_errors = wb_errors.active
+            
+            # 4. 使用 dataframe_to_rows 快速写入数据
+            for r in dataframe_to_rows(df_errors_only, index=False, header=True):
+                ws_errors.append(r)
+                
+            # 5. 遍历主错误列表(errors_locations)，进行标红
+            #    (col_name_to_idx 和 red_fill 已在前面定义)
+            for (original_row_idx, col_name) in errors_locations:
+                
+                # 检查这个错误是否在我们 "仅错误行" 的映射中
+                if original_row_idx in original_idx_to_new_excel_row:
+                    
+                    # 获取它在新Excel文件中的行号
+                    new_row = original_idx_to_new_excel_row[original_row_idx]
+                    
+                    # 获取列号
+                    if col_name in col_name_to_idx:
+                        new_col = col_name_to_idx[col_name]
+                        
+                        # 应用标红
+                        ws_errors.cell(row=new_row, column=new_col).fill = red_fill
+            
+            # 6. 保存到 BytesIO
+            output_errors_only = BytesIO()
+            wb_errors.save(output_errors_only)
             output_errors_only.seek(0)
             
-            # 4. 创建第二个下载按钮
+            # 7. 创建下载按钮
             st.download_button(
-                label=f"📥 下载 {sheet_keyword} (仅含错误行)",
+                label=f"📥 下载 {sheet_keyword} (仅含错误行, 带标红)", # 更新了标签
                 data=output_errors_only,
-                file_name=f"记录表_{sheet_keyword}_仅错误行.xlsx",
-                key=f"download_{sheet_keyword}_errors_only" # 必须使用唯一的 key
+                file_name=f"记录表_{sheet_keyword}_仅错误行_标红.xlsx", # 更新了文件名
+                key=f"download_{sheet_keyword}_errors_only" # Key 保持不变
             )
         except Exception as e:
-            st.error(f"❌ 生成“仅错误行”文件时出错: {e}")   
+            st.error(f"❌ 生成“仅错误行”文件时出错: {e}")
     
     elapsed = time.time() - start_time
     st.success(f"✅ {sheet_keyword} 检查完成，共 {total_errors} 处错误，用时 {elapsed:.2f} 秒。")
