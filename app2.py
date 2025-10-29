@@ -144,25 +144,25 @@ def compare_series_vec(s_main, s_ref, main_kw):
     """
     向量化比较两个Series，复刻原始的 compare_fields_and_mark 逻辑。
     返回一个布尔Series，True表示存在差异。
+    (V2：增加对 merge 失败 (NaN) 的静默跳过)
     """
     
+    # 0. 识别真正的 "Merge 失败" (s_ref 是物理 NaN)
+    #    我们必须在 s_ref 被 astype(str) 污染前执行此操作
+    merge_failed_mask = s_ref.isna() 
+
     # 1. 预处理：处理空值。原始逻辑：同为NaN/空则认为一致。
     main_is_na = pd.isna(s_main) | (s_main.astype(str).str.strip().isin(["", "nan", "None"]))
     ref_is_na = pd.isna(s_ref) | (s_ref.astype(str).str.strip().isin(["", "nan", "None"]))
     
-    # 如果两者都为空，则不算错误
+    # 两者都为空（NaN, "", "None"等），不算错误
     both_are_na = main_is_na & ref_is_na
     
-    # 如果参考值为空，不应报错 (模仿 ref_rows.empty)
-    # （merge后，未匹配到的行 ref_is_na 会为 True，这里我们只关心两者都为空的情况）
-
     # 2. 日期字段比较
     if any(k in main_kw for k in ["日期", "时间"]):
         d_main = pd.to_datetime(s_main, errors='coerce')
         d_ref = pd.to_datetime(s_ref, errors='coerce')
         
-        # 原始 same_date_ymd 逻辑：
-        # 只有当两者都是有效日期且年月日不相等时，才算错误。
         valid_dates_mask = d_main.notna() & d_ref.notna()
         date_diff_mask = (d_main.dt.date != d_ref.dt.date)
         
@@ -170,31 +170,27 @@ def compare_series_vec(s_main, s_ref, main_kw):
     
     # 3. 数值/文本比较
     else:
-        # 使用原始的 normalize_num 函数，但通过 apply 应用
         s_main_norm = s_main.apply(normalize_num)
         s_ref_norm = s_ref.apply(normalize_num)
         
-        # 重新检查标准化后的空值
         main_is_na_norm = pd.isna(s_main_norm) | (s_main_norm.astype(str).str.strip().isin(["", "nan", "None"]))
         ref_is_na_norm = pd.isna(s_ref_norm) | (s_ref_norm.astype(str).str.strip().isin(["", "nan", "None"]))
         both_are_na_norm = main_is_na_norm & ref_is_na_norm
 
-        # 检查是否为数值类型
         is_num_main = s_main_norm.apply(lambda x: isinstance(x, (int, float)))
         is_num_ref = s_ref_norm.apply(lambda x: isinstance(x, (int, float)))
         both_are_num = is_num_main & is_num_ref
         
-        # 初始化错误Series
         errors = pd.Series(False, index=s_main.index)
         
         # 3a. 数值比较
         if both_are_num.any():
-            num_main = s_main_norm[both_are_num]
-            num_ref = s_ref_norm[both_are_num]
+            num_main = s_main_norm[both_are_num].fillna(0) # fillna(0) for safety
+            num_ref = s_ref_norm[both_are_num].fillna(0)
             diff = (num_main - num_ref).abs()
             
             if main_kw == "保证金比例":
-                num_errors = (diff > 0.00500001) # 增加微小容差
+                num_errors = (diff > 0.00500001)
             else:
                 num_errors = (diff > 1e-6)
             
@@ -209,12 +205,26 @@ def compare_series_vec(s_main, s_ref, main_kw):
             str_errors = (str_main != str_ref)
             errors.loc[not_num_mask] = str_errors
             
-        # 最终错误：排除掉那些两者皆为空的情况
+        # 排除掉那些两者皆为空的情况
         errors = errors & ~both_are_na_norm
-        return errors
+        # return errors # (这是旧的返回)
 
-    # 最终错误：排除掉那些两者皆为空的情况
-    return errors & ~both_are_na
+    # 4. === 最终错误逻辑 ===
+    
+    # a. 排除 "两者皆为空" 的情况 (原始逻辑)
+    final_errors = errors & ~both_are_na
+    
+    # b. 排除 "Merge 失败" 的情况 (复刻 iterrows 的 'if ref_rows.empty: return 0')
+    #    条件:
+    #    1. merge_failed_mask 为 True (s_ref 是物理 NaN)
+    #    2. main_is_na 为 False (s_main 不是空的)
+    #    如果 (1) 和 (2) 都成立，说明这是一个 "lookup failure"，我们必须忽略它
+    
+    lookup_failure_mask = merge_failed_mask & ~main_is_na
+    
+    final_errors = final_errors & ~lookup_failure_mask
+    
+    return final_errors
 
 # =====================================
 # 🧮 单sheet检查函数 (向量化版)
@@ -408,7 +418,27 @@ contract_col_ec = find_col(ec_df, "合同")
 contract_col_zk = find_col(zk_df, "合同")
 
 # 对照字段映射表
-mapping_fk = {"授信方": "授信", "租赁本金": "本金", "租赁期限月": "租赁期限月", "客户经理": "客户经理", "起租收益率": "收益率", "主车台数": "主车台数", "挂车台数": "挂车台数"}
+# 对照字段映射表
+
+# --- VVVV (这是旧的，错误的) VVVV ---
+# mapping_fk = {"授信方": "授信", "租赁本金": "本金", "租赁期限月": "租赁期限月", "客户经理": "客户经理", "起租收益率": "收益率", "主车台数": "主车台数", "挂车台数": "挂车台数"}
+
+# --- VVVV (这是新的，修正的) VVVV ---
+# 格式: {"记录表(主表)的列名": "放款明细(参考表)的列名关键字"}
+mapping_fk = {
+    # 这3个是正确的
+    "授信方": "授信方",     # "授信方" in "授信方"
+    "租赁本金": "租赁本金",   # "租赁本金" in "租赁本金"
+    "客户经理": "客户经理",   # "客户经理" in "客户经理"
+    
+    # 这4个是修正的
+    "主车台数": "车辆台数",     # "车辆台数" in "车辆台数"
+    "挂车台数": "挂车数量",     # "挂车数量" in "挂车数量"
+    "起租收益率": "XIRR"      # 假设 "费率" 是您想要的 "收益率"。如果不是，请修改为 "XIRR" 或其他
+}
+# --- ^^^^ (修正结束) ^^^^ ---
+
+
 mapping_zd = {"保证金比例": "保证金比例_2", "项目提报人": "提报", "起租时间": "起租日_商", "租赁期限月": "总期数_商_资产", "所属省区": "区域", "城市经理": "城市经理"}
 mapping_ec = {"二次时间": "出本流程时间"}
 mapping_zk = {"授信方": "授信方"}
