@@ -392,6 +392,31 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict):
         key=f"download_{sheet_keyword}" # 增加key避免streamlit重跑问题
     )
 
+ # 11. (新) 导出仅含错误行的文件
+    if row_has_error.any():
+        try:
+            # 1. 使用 row_has_error 过滤 merged_df
+            # 2. 使用 original_cols_list (在第 365 行已定义) 来确保只保留原始列
+            df_errors_only = merged_df.loc[row_has_error, original_cols_list].copy()
+            
+            # 2. 创建一个新的 BytesIO 用于导出
+            output_errors_only = BytesIO()
+            
+            # 3. 将 "仅错误" DataFrame 存入
+            #    注意：这里我们不需要保留原始的空行，所以直接 to_excel
+            df_errors_only.to_excel(output_errors_only, index=False, engine='openpyxl')
+            output_errors_only.seek(0)
+            
+            # 4. 创建第二个下载按钮
+            st.download_button(
+                label=f"📥 下载 {sheet_keyword} (仅含错误行)",
+                data=output_errors_only,
+                file_name=f"记录表_{sheet_keyword}_仅错误行.xlsx",
+                key=f"download_{sheet_keyword}_errors_only" # 必须使用唯一的 key
+            )
+        except Exception as e:
+            st.error(f"❌ 生成“仅错误行”文件时出错: {e}")   
+    
     elapsed = time.time() - start_time
     st.success(f"✅ {sheet_keyword} 检查完成，共 {total_errors} 处错误，用时 {elapsed:.2f} 秒。")
     return total_errors, elapsed, skip_city_manager[0], contracts_seen
