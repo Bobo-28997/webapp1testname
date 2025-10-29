@@ -80,60 +80,67 @@ def normalize_text(val):
 
 def compare_fields_vectorized(main_df, ref_df, contract_col_main, contract_col_ref, mapping_dict, tolerance_dict=None):
     """
-    ⚡ 向量化字段比对：一次性 merge 合同号并批量计算错误标记。
-    返回：
-        merged_df: 合并后主表数据
-        error_mask: 每个字段的布尔错误矩阵
+    向量化字段比对：一次性 merge 并批量计算错误标记。
+    返回：包含各字段错误标记列的 DataFrame
     """
     tolerance_dict = tolerance_dict or {}
     df = main_df.copy()
-    ref = ref_df.copy()
 
-    # 合同号标准化
+    # 1️⃣ 合同号标准化
     df['_合同号_'] = df[contract_col_main].astype(str).str.strip()
-    ref['_合同号_'] = ref[contract_col_ref].astype(str).str.strip()
+    ref_df['_合同号_'] = ref_df[contract_col_ref].astype(str).str.strip()
 
-    # 左连接对齐参考数据
-    merged = pd.merge(df, ref, on="_合同号_", suffixes=("", "_ref"), how="left")
+    # 2️⃣ 按合同号 merge（左连接保留主表全部）
+    merged = pd.merge(df, ref_df, on="_合同号_", suffixes=("", "_ref"), how="left")
 
-    # 初始化错误标记矩阵
-    error_mask = pd.DataFrame(False, index=merged.index, columns=mapping_dict.keys())
+    # 3️⃣ 初始化错误标记矩阵
+    error_flags = pd.DataFrame(False, index=merged.index, columns=mapping_dict.keys())
 
+    # 4️⃣ 批量字段比对
     for main_kw, ref_kw in mapping_dict.items():
-        main_col = find_col(df, main_kw)
-        ref_col = find_col(ref, ref_kw)
-        if not main_col or not ref_col:
+        col_main = find_col(main_df, main_kw)
+        col_ref = find_col(ref_df, ref_kw)
+
+        if not col_main or not col_ref:
             continue
 
-        a = merged[main_col]
-        b = merged[f"{ref_col}_ref"]
+        a = merged[col_main]
+        # ✅ 如果 merge 后没有 _ref 后缀，就回退用原名
+        b_col_name = f"{col_ref}_ref" if f"{col_ref}_ref" in merged.columns else col_ref
+        b = merged[b_col_name]
 
-        # 日期字段比较
-        if "日期" in main_kw or "时间" in main_kw or "日期" in ref_kw or "时间" in ref_kw:
-            a_dt = pd.to_datetime(a, errors='coerce')
-            b_dt = pd.to_datetime(b, errors='coerce')
+        # 统一预处理
+        a_norm = a.astype(str).str.strip().replace(["", "nan", "-", "None"], np.nan)
+        b_norm = b.astype(str).str.strip().replace(["", "nan", "-", "None"], np.nan)
+
+        # 日期字段
+        if any(k in main_kw for k in ["日期", "时间"]) or any(k in ref_kw for k in ["日期", "时间"]):
+            a_dt = pd.to_datetime(a_norm, errors="coerce")
+            b_dt = pd.to_datetime(b_norm, errors="coerce")
             mismatch = ~((a_dt.dt.date == b_dt.dt.date) | (a_dt.isna() & b_dt.isna()))
 
-        # 数值字段比较
-        elif a.apply(lambda x: str(x).replace('.', '', 1).isdigit()).any():
-            a_num = pd.to_numeric(a.astype(str).str.replace(",", ""), errors="coerce")
-            b_num = pd.to_numeric(b.astype(str).str.replace(",", ""), errors="coerce")
+        # 数值字段
+        elif any(a_norm.str.contains(r"\d", na=False)) or any(b_norm.str.contains(r"\d", na=False)):
+            a_num = pd.to_numeric(a_norm.str.replace(",", ""), errors="coerce")
+            b_num = pd.to_numeric(b_norm.str.replace(",", ""), errors="coerce")
             tol = tolerance_dict.get(main_kw, 1e-6)
             mismatch = (a_num - b_num).abs() > tol
-            mismatch |= (a_num.isna() ^ b_num.isna())
+            mismatch |= (a_num.isna() ^ b_num.isna())  # NaN 不匹配
 
-        # 文本字段比较
+        # 其他文本字段
         else:
-            a_norm = a.astype(str).str.strip().str.lower().replace(".0", "")
-            b_norm = b.astype(str).str.strip().str.lower().replace(".0", "")
-            mismatch = ~(a_norm == b_norm)
+            mismatch = ~(
+                a_norm.fillna("").str.lower().str.replace(".0", "") ==
+                b_norm.fillna("").str.lower().str.replace(".0", "")
+            )
 
-        error_mask[main_kw] = mismatch.fillna(False)
+        error_flags[main_kw] = mismatch.fillna(False)
 
-    merged["_错误数_"] = error_mask.sum(axis=1)
+    # 5️⃣ 汇总错误数
+    merged["_错误数_"] = error_flags.sum(axis=1)
     merged["_是否错误_"] = merged["_错误数_"] > 0
 
-    return merged, error_mask
+    return merged, error_flags
 
 # =====================================
 # 🧮 单sheet检查函数（向量化优化）
