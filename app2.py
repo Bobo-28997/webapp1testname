@@ -83,7 +83,21 @@ zk_df = pd.read_excel(zk_file)
 
 # 自动去重列名，避免 merge 报错
 for df in [fk_df, zd_df, ec_df, zk_df]:
-    df.columns = pd.io.parsers.ParserBase({'names': df.columns})._maybe_dedup_names(df.columns)
+    # 自动去重列名
+    def dedup_columns(columns):
+        seen = {}
+        new_cols = []
+        for c in columns:
+            if c not in seen:
+                seen[c] = 0
+                new_cols.append(c)
+            else:
+                seen[c] += 1
+                new_cols.append(f"{c}.{seen[c]}")
+        return new_cols
+
+    df.columns = dedup_columns(df.columns)
+
 
 # =====================================
 # 🧩 字段映射
