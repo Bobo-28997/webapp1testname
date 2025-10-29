@@ -104,15 +104,27 @@ def same_date_ymd(a, b):
     except Exception:
         return False
 def prepare_ref_df(ref_df, mapping, prefix):
-    # 假设合同号列名为 contract_col
-    ref_contract_col = [k for k, v in mapping.items() if v == '合同号'][0]
+    # --- 修正开始 ---
     
+    # 1. 找到参考表(ref_df)中的“合同”列
+    # 我们使用 find_col，这才是正确的做法
+    contract_col = find_col(ref_df, "合同") 
+    
+    # 2. 如果在 ref_df 中找不到合同列，则无法继续
+    if not contract_col:
+        st.warning(f"⚠️ 在 {prefix} 参考表中未找到'合同'列，跳过此数据源。")
+        return pd.DataFrame(columns=['__KEY__']) # 返回一个空的带key的df
+        
     std_df = pd.DataFrame()
     
-    # VVVV 插入归一化函数 VVVV
-    std_df['__KEY__'] = normalize_contract_key(ref_df[ref_contract_col])
+    # 3. VVVV 插入归一化函数 VVVV
+    # 使用找到的 contract_col 来应用归一化
+    std_df['__KEY__'] = normalize_contract_key(ref_df[contract_col])
+    # ^^^^ 插入归一化函数 ^^^^
     
-    # 提取并重命名所有需要的字段
+    # --- 修正结束 ---
+
+    # 4. 提取并重命名所有需要的字段 (这部分逻辑保持不变)
     for main_kw, ref_kw in mapping.items():
         # 城市经理需要精确匹配
         exact = (main_kw == "城市经理") 
@@ -124,7 +136,7 @@ def prepare_ref_df(ref_df, mapping, prefix):
         else:
             st.warning(f"⚠️ 在 {prefix} 参考表中未找到列 (main: '{main_kw}', ref: '{ref_kw}')")
 
-    # 效仿原始逻辑：只取第一个匹配项
+    # 5. 效仿原始逻辑：只取第一个匹配项 (这部分逻辑保持不变)
     std_df = std_df.drop_duplicates(subset=['__KEY__'], keep='first')
     return std_df
 
@@ -248,9 +260,8 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict):
     red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
     yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 
-    # 4. 准备主表用于合并
-    # 获取主表的合同号列名
-    contract_col_main = get_contract_col_name_from_sheet(main_df) # 假设您有这个函数
+   # 4. 准备主表用于合并
+    # (注意：contract_col_main 已经在第 236 行被正确找到了，我们不需要再找了)
     
     # 存储原始索引，用于 openpyxl 定位
     main_df['__ROW_IDX__'] = main_df.index
@@ -261,13 +272,6 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict):
     # ^^^^ 插入归一化函数 ^^^^
     
     # 获取本表所有合同号（用于统计等）
-    contracts_seen = set(main_df['__KEY__'].dropna())
-    # 存储原始索引，用于 openpyxl 定位
-    main_df['__ROW_IDX__'] = main_df.index
-    # 创建标准合并Key
-    main_df['__KEY__'] = main_df[contract_col_main].astype(str).str.strip()
-    
-    # 获取本表所有合同号
     contracts_seen = set(main_df['__KEY__'].dropna())
 
     # 5. 一次性合并所有参考数据
