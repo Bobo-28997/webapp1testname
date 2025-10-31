@@ -137,6 +137,27 @@ def compare_series_vec(s_main, s_ref, main_kw):
     final_errors = final_errors & ~lookup_failure_mask
     return final_errors
 
+# --- VVVV (【修改点 1】: 将 reboot_app1 移到这里) VVVV ---
+def reboot_app1():
+    """
+    一个用于“重新上传”按钮的回调函数。
+    它会清除所有缓存和 session 状态，让 app 恢复到初始状态。
+    """
+    # 1. 清除函数缓存
+    run_full_audit.clear()
+    
+    # 2. 定义需要从 session_state 中清除的 key
+    keys_to_delete = ['audit_run_app1', 'uploader_app1'] # <--- 'uploader_app1' 是关键
+    
+    # 3. 循环删除
+    for key in keys_to_delete:
+        if key in st.session_state:
+            del st.session_state[key]
+    
+    # (不需要 st.rerun(), on_click 会自动触发)
+# --- ^^^^ (修改结束) ^^^^ ---
+
+
 # =====================================
 # 🧮 (修改) 单sheet检查函数 - 现在返回文件
 # =====================================
@@ -396,13 +417,11 @@ def run_full_audit(_uploaded_files):
     """
     
     # --- 1. 📖 文件读取 ---
-    # (注意：find_file 接收的是 _uploaded_files)
     main_file = find_file(_uploaded_files, "月重卡")
     fk_file = find_file(_uploaded_files, "放款明细")
     zd_file = find_file(_uploaded_files, "字段")
     ec_file = find_file(_uploaded_files, "二次明细")
     
-    # (新) 检查所有文件是否都找到了
     if not all([main_file, fk_file, zd_file, ec_file]):
         raise FileNotFoundError("未能找到所有必需的文件（月重卡、放款明细、字段、二次明细）。")
 
@@ -441,7 +460,6 @@ def run_full_audit(_uploaded_files):
         'ec': ec_std
     }
     
-    # 填充 mappings_all
     mappings_all['fk'] = (mapping_fk, fk_std)
     mappings_all['zd'] = (mapping_zd, zd_std)
     mappings_all['ec'] = (mapping_ec, ec_std)
@@ -458,7 +476,6 @@ def run_full_audit(_uploaded_files):
         stats, files_dict = check_one_sheet(kw, main_file, ref_dfs_std_dict, mappings_all)
         (count, used, skipped, seen) = stats
         
-        # 收集文件
         all_generated_files.append(files_dict["full_report"])
         if files_dict["error_report"][0] is not None:
             all_generated_files.append(files_dict["error_report"])
