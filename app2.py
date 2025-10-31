@@ -133,20 +133,20 @@ def prepare_ref_df(ref_df, mapping, prefix):
         ref_col_name = find_col(ref_df, ref_kw, exact=exact)
         
         if ref_col_name:
-            # 获取原始数据 Series
-            s_ref_raw = ref_df[ref_col_name]
-            
-            # 检查是否是 'fk' 表的 '租赁期限'
-            if prefix == 'fk' and main_kw == '租赁期限':
-                # 应用转换：年 -> 月
-                s_ref_transformed = pd.to_numeric(s_ref_raw, errors='coerce') * 12
-                std_df[f'ref_{prefix}_{main_kw}'] = s_ref_transformed
-            else:
-                # 无转换，直接赋值
-                std_df[f'ref_{prefix}_{main_kw}'] = s_ref_raw
-            # --- ^^^^ (新逻辑结束) ^^^^ ---
-        else:
-            st.warning(f"⚠️ 在 {prefix} 参考表中未找到列 (main: '{main_kw}', ref: '{ref_kw}')")
+            # 获取原始数据 Series
+            s_ref_raw = ref_df[ref_col_name]
+            
+            # 检查是否是 'fk' 表的 '租赁期限'
+            if prefix == 'fk' and main_kw == '租赁期限':
+                # 应用转换：年 -> 月
+                s_ref_transformed = pd.to_numeric(s_ref_raw, errors='coerce') * 12
+                std_df[f'ref_{prefix}_{main_kw}'] = s_ref_transformed
+            else:
+                # 无转换，直接赋值
+                std_df[f'ref_{prefix}_{main_kw}'] = s_ref_raw
+            # --- ^^^^ (新逻辑结束) ^^^^ ---
+        else:
+            st.warning(f"⚠️ 在 {prefix} 参考表中未找到列 (main: '{main_kw}', ref: '{ref_kw}')")
 
     # 5. 效仿原始逻辑：只取第一个匹配项 (这部分逻辑保持不变)
     std_df = std_df.drop_duplicates(subset=['__KEY__'], keep='first')
@@ -196,25 +196,25 @@ def compare_series_vec(s_main, s_ref, main_kw):
         errors = pd.Series(False, index=s_main.index)
 
         # 3a. 数值比较
-        if both_are_num.any():
-            num_main = s_main_norm[both_are_num].fillna(0) # fillna(0) for safety
-            num_ref = s_ref_norm[both_are_num].fillna(0)
-            diff = (num_main - num_ref).abs()
-            
-            # --- VVVV (这是修改后的逻辑) VVVV ---
-            if main_kw == "保证金比例":
-                num_errors = (diff > 0.00500001) # 保证金比例容错
-            
-            elif "租赁期限" in main_kw: # 匹配 "租赁期限" 和 "租赁期限月"
-                # 忽略小于 1.0 个月的差距 (即：差异 >= 1.0 才算错误)
-                num_errors = (diff >= 1.0) 
-            
-            else:
-                # 其他数值字段，使用标准微小容错
-                num_errors = (diff > 1e-6)
-            # --- ^^^^ (修改结束) ^^^^ ---
-            
-            errors.loc[both_are_num] = num_errors
+        if both_are_num.any():
+            num_main = s_main_norm[both_are_num].fillna(0) # fillna(0) for safety
+            num_ref = s_ref_norm[both_are_num].fillna(0)
+            diff = (num_main - num_ref).abs()
+            
+            # --- VVVV (这是修改后的逻辑) VVVV ---
+            if main_kw == "保证金比例":
+                num_errors = (diff > 0.00500001) # 保证金比例容错
+            
+            elif "租赁期限" in main_kw: # 匹配 "租赁期限" 和 "租赁期限月"
+                # 忽略小于 1.0 个月的差距 (即：差异 >= 1.0 才算错误)
+                num_errors = (diff >= 1.0) 
+            
+            else:
+                # 其他数值字段，使用标准微小容错
+                num_errors = (diff > 1e-6)
+            # --- ^^^^ (修改结束) ^^^^ ---
+            
+            errors.loc[both_are_num] = num_errors
 
         # 3b. 文本比较
         not_num_mask = ~both_are_num
