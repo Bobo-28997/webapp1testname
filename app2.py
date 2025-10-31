@@ -496,30 +496,62 @@ st.image("image/app1(1).png")
 # 📂 上传文件区：要求上传 4 个 xlsx 文件 (重构版)
 # =====================================
 uploaded_files = st.file_uploader(
-    "请上传文件名中包含以下字段的文件：月重卡、放款明细、字段、二次明细。最后誊写，需检的表为文件名包含‘月重卡’字段的表。",
-    type="xlsx",
-    accept_multiple_files=True
+    "请上传文件名中包含以下字段的文件：月重卡、放款明细、字段、二次明细。最后誊写，需检的表为文件名包含‘月重卡’字段的表。",
+    type="xlsx",
+    accept_multiple_files=True,
+    key="uploader_app1" # <--- VVVV 新增此 key VVVV
 )
 
 # =====================================
-# 🚀 (新) 主执行逻辑
+# 🚀 (新) 主执行逻辑 (V2 - 缓存修复版)
 # =====================================
+
+def reboot_app1():
+    """
+    一个用于“重新上传”按钮的回调函数。
+    它会清除所有缓存和 session 状态，让 app 恢复到初始状态。
+    """
+    # 1. 清除函数缓存
+    run_full_audit.clear()
+    
+    # 2. 定义需要从 session_state 中清除的 key
+    keys_to_delete = ['audit_run_app1', 'uploader_app1'] # <--- 'uploader_app1' 是关键
+    
+    # 3. 循环删除
+    for key in keys_to_delete:
+        if key in st.session_state:
+            del st.session_state[key]
+    
+    # (不需要 st.rerun(), on_click 会自动触发)
+
+# -------------------------------------
+# 主程序开始
+# -------------------------------------
+
 if not uploaded_files or len(uploaded_files) < 4:
     st.warning("⚠️ 请上传所有 4 个文件后继续")
+    # (健壮性：如果用户清空了文件, 也重置审核状态)
+    if 'audit_run_app1' in st.session_state:
+        del st.session_state.audit_run_app1
     st.stop()
 else:
     st.success("✅ 文件上传完成")
     
-    # (新) “开始审核”按钮
-    if st.button("🚀 开始审核", type="primary"):
-        # 将运行状态存入 session state
-        st.session_state.audit_run_app1 = True # (使用 app1 唯一的 session state key)
+    # (新) 创建两列用于放置按钮
+    col1, col2 = st.columns(2)
     
-    # (新) “重新审核”按钮，用于清除缓存
-    if st.button("🔄 清除缓存并重新审核"):
-        run_full_audit.clear()
-        st.session_state.audit_run_app1 = True
-        st.rerun()
+    with col1:
+        # (新) “开始审核”按钮
+        if st.button("🚀 开始审核", type="primary", use_container_width=True):
+            # 将运行状态存入 session state
+            st.session_state.audit_run_app1 = True 
+            # (点击按钮会自动 rerun)
+    
+    with col2:
+        # --- VVVV (【核心修改】按钮逻辑) VVVV ---
+        # (新) “重新上传 (Reboot)” 按钮
+        st.button("🔄 重新上传 (Reboot)", on_click=reboot_app1, use_container_width=True)
+        # --- ^^^^ (修改结束) ^^^^ ---
 
     # (新) 只有在 "开始审核" 被点击后才执行
     if 'audit_run_app1' in st.session_state and st.session_state.audit_run_app1:
@@ -536,12 +568,12 @@ else:
             st.subheader("📤 下载审核结果文件")
             
             # (新) 将下载按钮放入两列
-            cols = st.columns(2)
+            cols_dl = st.columns(2) # (使用新变量名, 避免与 col1/col2 混淆)
             col_idx = 0
             
             for (filename, data) in all_files:
                 if filename and data: # 确保文件名和数据都存在
-                    with cols[col_idx % 2]:
+                    with cols_dl[col_idx % 2]:
                         st.download_button(
                             label=f"📥 下载 {filename}",
                             data=data,
@@ -558,7 +590,7 @@ else:
             st.session_state.audit_run_app1 = False # 出错时重置状态
         except ValueError as e:
             st.error(f"❌ Sheet 查找失败: {e}")
-            st.info("请确保您的Excel文件包含必需的 sheet（例如 '威田', '重卡'）。")
+            st.info(f"请确保您的Excel文件包含必需的 sheet（例如 '威田', '重卡'）。错误详情: {e}")
             st.session_state.audit_run_app1 = False
         except Exception as e:
             st.error(f"❌ 审核过程中发生未知错误: {e}")
