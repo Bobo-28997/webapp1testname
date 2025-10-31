@@ -496,9 +496,9 @@ st.image("image/app1(1).png")
 # 📂 上传文件区：要求上传 4 个 xlsx 文件 (重构版)
 # =====================================
 uploaded_files = st.file_uploader(
-    "请上传文件名中包含以下字段的文件：月重卡、放款明细、字段、二次明细。最后誊写，需检的表为文件名包含‘月重卡’字段的表。",
-    type="xlsx",
-    accept_multiple_files=True,
+    "请上传文件名中包含以下字段的文件：月重卡、放款明细、字段、二次明细。最后誊写，需检的表为文件名包含‘月重卡’字段的表。",
+    type="xlsx",
+    accept_multiple_files=True,
     key="uploader_app1" # <--- VVVV 新增此 key VVVV
 )
 
