@@ -129,11 +129,10 @@ def prepare_ref_df(ref_df, mapping, prefix):
     # 4. 提取并重命名所有需要的字段 (【已修改】增加租赁期限*12的逻辑)
     for main_kw, ref_kw in mapping.items():
         # 城市经理需要精确匹配
-        exact = (main_kw == "城市经理") 
-        ref_col_name = find_col(ref_df, ref_kw, exact=exact)
-        
-        if ref_col_name:
-            # --- VVVV (这是新添加的逻辑) VVVV ---
+        exact = (main_kw == "城市经理") 
+        ref_col_name = find_col(ref_df, ref_kw, exact=exact)
+        
+        if ref_col_name:
             # 获取原始数据 Series
             s_ref_raw = ref_df[ref_col_name]
             
