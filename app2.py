@@ -51,7 +51,7 @@ uploaded_files = st.file_uploader(
 )
 
 if not uploaded_files or len(uploaded_files) < 5:
-    st.warning("⚠️ 请上传所有 5 个文件后继续")
+    st.warning("⚠️ 请上传所有 4 个文件后继续")
     st.stop()
 else:
     st.success("✅ 文件上传完成")
