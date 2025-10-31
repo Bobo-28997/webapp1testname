@@ -548,7 +548,7 @@ def reboot_app1():
 # --- VVVV (【核心修改】把 Reboot 按钮移到最前面) VVVV ---
 # 无论是否上传文件，始终显示 Reboot 按钮
 # (我们用 st.empty() 作为一个小技巧来控制它的位置，或者直接放在 uploader 下面)
-st.button("🔄 重新上传 (Reboot)", on_click=reboot_app1, use_container_width=True)
+st.button("🔄 先按这个刷新缓存", on_click=reboot_app1, use_container_width=True)
 st.divider() # 添加一个分隔线
 # --- ^^^^ (修改结束) ^^^^ ---
 
