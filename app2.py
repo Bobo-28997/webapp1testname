@@ -249,7 +249,7 @@ def compare_series_vec(s_main, s_ref, main_kw):
 # =====================================
 # 🧮 单sheet检查函数 (向量化版)
 # =====================================
-def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict):
+def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict, resigned_staff_set):
     start_time = time.time()
     xls_main = pd.ExcelFile(main_file)
 
@@ -366,18 +366,49 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict):
             final_errors_mask = errors_mask & ~skip_mask
             
             if final_errors_mask.any():
-                total_errors += final_errors_mask.sum()
                 row_has_error |= final_errors_mask
                 
                 # 8. 存储错误位置 (使用 __ROW_IDX__ 和 原始 main_col 名称)
                 bad_indices = merged_df[final_errors_mask]['__ROW_IDX__']
                 for idx in bad_indices:
                     errors_locations.add((idx, main_col))
-                    
-            progress.progress(current_comparison / total_comparisons)
+# ... (在 mappings_all 循环之后) ...
+            
+    progress.progress(current_comparison / total_comparisons)
+
+    # --- VVVV (【新功能】离职人员检查) VVVV ---
+    status.text(f"检查「{sheet_keyword}」: 离职人员...")
+    
+    # 1. 查找 "客户经理" 列
+    manager_col = find_col(main_df, "客户经理")
+    
+    # 2. 只有当 "客户经理" 列存在 且 离职名单非空时才执行
+    if manager_col and resigned_staff_set:
+        
+        # 3. 标准化主表中的 "客户经理" 列
+        s_managers = merged_df[manager_col].astype(str).str.strip().str.lower()
+        
+        # 4. (核心) 使用 .isin 找出所有匹配离职名单的行
+        resigned_mask = s_managers.isin(resigned_staff_set)
+        
+        if resigned_mask.any():
+            st.warning(f"  > 发现 {resigned_mask.sum()} 条记录的客户经理已离职。")
+            
+            # 5. 将这些行标记为错误
+            row_has_error |= resigned_mask # 确保行被标黄
+            
+            # 6. 找出这些错误的坐标，添加到 errors_locations 中
+            bad_indices = merged_df[resigned_mask]['__ROW_IDX__']
+            for idx in bad_indices:
+                errors_locations.add((idx, manager_col)) # 确保单元格被标红
+    # --- ^^^^ (新功能结束) ^^^^ ---
+
+    # (新) 最终错误数 = 标红单元格的总数
+    total_errors = len(errors_locations) 
 
     status.text(f"「{sheet_keyword}」比对完成，正在生成标注文件...")
-
+    # ... (此后的 #9. Excel 标注逻辑不变) ...                    
+    
     # 9. === 遍历错误进行Excel标注 ===
     # (这比遍历所有单元格快得多)
     
@@ -486,6 +517,30 @@ fk_df = pd.read_excel(pd.ExcelFile(fk_file), sheet_name=find_sheet(pd.ExcelFile(
 zd_df = pd.read_excel(pd.ExcelFile(zd_file), sheet_name=find_sheet(pd.ExcelFile(zd_file), "重卡"))
 ec_df = pd.read_excel(ec_file)
 
+# --- VVVV (【新功能】加载离职人员名单) VVVV ---
+st.info("ℹ️ 正在加载离职人员名单...")
+resigned_staff_set = set()
+try:
+    main_xls = pd.ExcelFile(main_file)
+    # 1. 查找 "离职人员" sheet
+    resigned_sheet_name = find_sheet(main_xls, "离职人员")
+    resigned_df = pd.read_excel(main_xls, sheet_name=resigned_sheet_name)
+    
+    # 2. 查找第一个 "姓名" 列
+    resigned_name_col = find_col(resigned_df, "姓名")
+    
+    if resigned_name_col:
+        # 3. 创建离职人员 set (使用 .astype(str).str.strip().str.lower() 进行标准化)
+        resigned_staff_set = set(
+            resigned_df[resigned_name_col].dropna().astype(str).str.strip().str.lower()
+        )
+        st.success(f"✅ 成功加载 {len(resigned_staff_set)} 名离职人员。")
+    else:
+        st.warning("⚠️ 在“离职人员”sheet中未找到“姓名”列，离职检查将跳过。")
+except Exception as e:
+    st.error(f"❌ 加载“离职人员”sheet时出错: {e}。离职检查将跳过。")
+# --- ^^^^ (新功能结束) ^^^^ 
+
 # 合同列定位
 contract_col_fk = find_col(fk_df, "合同")
 contract_col_zd = find_col(zd_df, "合同")
@@ -537,8 +592,8 @@ contracts_seen_all_sheets = set()
 
 # 循环处理四张sheet (调用新函数)
 for kw in sheet_keywords:
-    # 将 main_file 和 ref_dfs_std_dict 传递进去
-    count, used, skipped, seen = check_one_sheet(kw, main_file, ref_dfs_std_dict)
+    # 将 main_file, ref_dfs_std_dict 和 new: resigned_staff_set 传递进去
+    count, used, skipped, seen = check_one_sheet(kw, main_file, ref_dfs_std_dict, resigned_staff_set)
     
     total_all += count
     elapsed_all += used or 0
