@@ -712,14 +712,6 @@ for kw in sheet_keywords:
     skip_total += skipped
     contracts_seen_all_sheets.update(seen)
 
-# ... (for kw in sheet_keywords: 循环体) ...
-    count, used, skipped, seen = check_one_sheet(kw, main_file, ref_dfs_std_dict)
-    
-    total_all += count
-    elapsed_all += used or 0
-    skip_total += skipped
-    contracts_seen_all_sheets.update(seen)
-
 sheet_keyword_resigned = "月-"
 try:
     # 调用新函数, 传入加载好的 resigned_staff_set
