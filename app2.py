@@ -1,6 +1,6 @@
 # =====================================
-# Streamlit Web App: 模拟Project：人事用合同记录表自动审核（四输出表版 + 漏填检查 + 驻店客户版）
-# (V3: 缓存优化版)
+# Streamlit Web App: 模拟Project：人事用合同记录表自动审核
+# (V2: 缓存优化版)
 # =====================================
 
 import streamlit as st
@@ -16,9 +16,6 @@ from io import BytesIO
 # =====================================
 
 def normalize_contract_key(series: pd.Series) -> pd.Series:
-    """
-    对合同号 Series 进行标准化处理，用于安全的 pd.merge 操作。
-    """
     s = series.astype(str)
     s = s.str.replace(r"\.0$", "", regex=True) 
     s = s.str.strip()
@@ -34,7 +31,8 @@ def find_file(files_list, keyword):
     for f in files_list:
         if keyword in f.name:
             return f
-    raise FileNotFoundError(f"❌ 未找到包含关键词「{keyword}」的文件")
+    # (修改：返回 None 而不是 raise Error, 允许缓存函数处理)
+    return None 
 
 def normalize_colname(c): return str(c).strip().lower()
 
@@ -50,7 +48,7 @@ def find_sheet(xls, keyword):
     for s in xls.sheet_names:
         if keyword in s:
             return s
-    raise ValueError(f"❌ 未找到包含关键词「{keyword}」的sheet")
+    raise ValueError(f"❌ 未找到包含关键词「{keyword}」的sheet: {keyword}")
 
 def normalize_num(val):
     if pd.isna(val): return None
@@ -63,24 +61,20 @@ def normalize_num(val):
         return s
 
 def prepare_ref_df(ref_df, mapping, prefix):
-    # 1. 找到合同列
     contract_col = find_col(ref_df, "合同") 
     if not contract_col:
         st.warning(f"⚠️ 在 {prefix} 参考表中未找到'合同'列，跳过此数据源。")
         return pd.DataFrame(columns=['__KEY__'])
         
     std_df = pd.DataFrame()
-    # 2. 归一化 Key
     std_df['__KEY__'] = normalize_contract_key(ref_df[contract_col])
     
-    # 3. 提取并重命名
     for main_kw, ref_kw in mapping.items():
         exact = (main_kw == "城市经理")
         ref_col_name = find_col(ref_df, ref_kw, exact=exact)
         
         if ref_col_name:
             s_ref_raw = ref_df[ref_col_name]
-            # 4. (核心) 年转月逻辑
             if prefix == 'fk' and main_kw == '租赁期限':
                 s_ref_transformed = pd.to_numeric(s_ref_raw, errors='coerce') * 12
                 std_df[f'ref_{prefix}_{main_kw}'] = s_ref_transformed
@@ -120,7 +114,6 @@ def compare_series_vec(s_main, s_ref, main_kw):
             num_ref = s_ref_norm[both_are_num].fillna(0)
             diff = (num_main - num_ref).abs()
             
-            # (核心) 容错逻辑
             if main_kw == "保证金比例":
                 num_errors = (diff > 0.00500001)
             elif "租赁期限" in main_kw:
@@ -148,6 +141,11 @@ def compare_series_vec(s_main, s_ref, main_kw):
 # 🧮 (修改) 单sheet检查函数 - 现在返回文件
 # =====================================
 def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict, mappings_all):
+    """
+    (已修改)
+    1. 移除 st.download_button
+    2. 返回 (stats, files_dict)
+    """
     start_time = time.time()
     xls_main = pd.ExcelFile(main_file)
 
@@ -172,19 +170,16 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict, mappings_all):
         st.error(f"❌ 在「{sheet_keyword}」中未找到合同列。")
         return (0, None, 0, set()), {}
 
-    # (这部分不变：在内存中创建标注)
-    output_path = f"月重卡_{sheet_keyword}_审核标注版.xlsx"
-    empty_row = pd.DataFrame([[""] * len(main_df.columns)], columns=main_df.columns)
-    
     # --- 写入临时 BytesIO 而不是磁盘 ---
     temp_output_stream = BytesIO()
     with pd.ExcelWriter(temp_output_stream, engine='openpyxl') as writer:
+        # (保留原始空行)
+        empty_row = pd.DataFrame([[""] * len(main_df.columns)], columns=main_df.columns)
         pd.concat([empty_row, main_df], ignore_index=True).to_excel(writer, index=False, sheet_name=target_sheet)
     temp_output_stream.seek(0)
     
     wb = load_workbook(temp_output_stream)
     ws = wb[target_sheet] # 确保激活正确的 sheet
-    # --- 结束修改 ---
     
     red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
     yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
@@ -203,8 +198,8 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict, mappings_all):
     errors_locations = set()
     row_has_error = pd.Series(False, index=merged_df.index) 
 
-    # --- (移除 st.progress 和 st.status) ---
-    # ...
+    progress = st.progress(0)
+    status = st.empty()
 
     total_comparisons = sum(len(m[0]) for m in mappings_all.values())
     current_comparison = 0
@@ -216,7 +211,7 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict, mappings_all):
             
         for main_kw, ref_kw in mapping.items():
             current_comparison += 1
-            # (移除 st.status)
+            status.text(f"检查「{sheet_keyword}」: {prefix} - {main_kw}...")
             
             exact = (main_kw == "城市经理")
             main_col = find_col(main_df, main_kw, exact=exact)
@@ -238,17 +233,16 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict, mappings_all):
             final_errors_mask = errors_mask & ~skip_mask
             
             if final_errors_mask.any():
-                total_errors += final_errors_mask.sum() # <-- 我们在这里重新计算总错误数
+                total_errors += final_errors_mask.sum()
                 row_has_error |= final_errors_mask
                 bad_indices = merged_df[final_errors_mask]['__ROW_IDX__']
                 for idx in bad_indices:
                     errors_locations.add((idx, main_col))
             
-            # (移除 st.progress)
+            progress.progress(current_comparison / total_comparisons)
 
-    # (移除 st.status)
-    
-    # --- (9. 标注逻辑不变) ---
+    status.text(f"「{sheet_keyword}」比对完成，正在生成标注文件...")
+
     original_cols_list = list(main_df.drop(columns=['__ROW_IDX__', '__KEY__']).columns)
     col_name_to_idx = {name: i + 1 for i, name in enumerate(original_cols_list)}
 
@@ -267,8 +261,6 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict, mappings_all):
     wb.save(output)
     output.seek(0)
     
-    # (移除 st.download_button)
-
     files_to_save = {
         "full_report": (f"月重卡_{sheet_keyword}_审核标注版.xlsx", output),
         "error_report": (None, None)
@@ -409,7 +401,12 @@ def run_full_audit(_uploaded_files):
     fk_file = find_file(_uploaded_files, "放款明细")
     zd_file = find_file(_uploaded_files, "字段")
     ec_file = find_file(_uploaded_files, "二次明细")
+    
+    # (新) 检查所有文件是否都找到了
+    if not all([main_file, fk_file, zd_file, ec_file]):
+        raise FileNotFoundError("未能找到所有必需的文件（月重卡、放款明细、字段、二次明细）。")
 
+    st.info("ℹ️ 正在读取并预处理参考文件...")
     fk_df = pd.read_excel(pd.ExcelFile(fk_file), sheet_name=find_sheet(pd.ExcelFile(fk_file), "威田"))
     zd_df = pd.read_excel(pd.ExcelFile(zd_file), sheet_name=find_sheet(pd.ExcelFile(zd_file), "重卡"))
     ec_df = pd.read_excel(ec_file)
@@ -434,7 +431,6 @@ def run_full_audit(_uploaded_files):
     }
 
     # --- 3. 🚀 预处理 ---
-    st.info("ℹ️ 正在预处理参考数据...")
     fk_std = prepare_ref_df(fk_df, mapping_fk, 'fk')
     zd_std = prepare_ref_df(zd_df, mapping_zd, 'zd')
     ec_std = prepare_ref_df(ec_df, mapping_ec, 'ec')
@@ -514,43 +510,57 @@ if not uploaded_files or len(uploaded_files) < 4:
 else:
     st.success("✅ 文件上传完成")
     
-    # 1. (新) 调用缓存的审核函数
-    try:
-        all_files, stats = run_full_audit(uploaded_files)
+    # (新) “开始审核”按钮
+    if st.button("🚀 开始审核", type="primary"):
+        # 将运行状态存入 session state
+        st.session_state.audit_run_app1 = True # (使用 app1 唯一的 session state key)
+    
+    # (新) “重新审核”按钮，用于清除缓存
+    if st.button("🔄 清除缓存并重新审核"):
+        run_full_audit.clear()
+        st.session_state.audit_run_app1 = True
+        st.rerun()
 
-        # 2. (新) 显示统计摘要
-        st.success(f"🎯 全部审核完成，共 {stats['total_all']} 处错误，总耗时 {stats['elapsed_all']:.2f} 秒。")
-        st.warning(f"⚠️ 共发现 {stats['漏填合同数']} 个合同在记录表中未出现（已排除车管家、联合租赁、驻店）")
-        
-        # 3. (新) “重新审核”按钮
-        st.info("点击下载按钮不会重新审核。如需使用新文件或强制重新运行，请点击下方按钮。")
-        if st.button("🔄 强制重新审核 (清除缓存)"):
-            # 手动清除缓存
-            run_full_audit.clear()
-            # 强制 Streamlit 重新运行整个脚本
-            st.rerun()
+    # (新) 只有在 "开始审核" 被点击后才执行
+    if 'audit_run_app1' in st.session_state and st.session_state.audit_run_app1:
+        try:
+            # 1. (新) 调用缓存的审核函数
+            all_files, stats = run_full_audit(uploaded_files)
 
-        # 4. (新) 显示所有下载按钮
-        st.divider()
-        st.subheader("📤 下载审核结果文件")
-        
-        for (filename, data) in all_files:
-            if filename and data: # 确保文件名和数据都存在
-                st.download_button(
-                    label=f"📥 下载 {filename}",
-                    data=data,
-                    file_name=filename,
-                    key=f"download_btn_{filename}" # 使用唯一key
-                )
-        
-        st.success("✅ 所有检查、标注与导出完成！")
-        
-    except FileNotFoundError as e:
-        st.error(f"❌ 文件查找失败: {e}")
-        st.info("请确保您上传了所有必需的文件（月重卡、放款明细、字段、二次明细）。")
-    except ValueError as e:
-        st.error(f"❌ Sheet 查找失败: {e}")
-        st.info("请确保您的Excel文件包含必需的 sheet（例如 '威田', '重卡'）。")
-    except Exception as e:
-        st.error(f"❌ 审核过程中发生未知错误: {e}")
-        st.exception(e)
+            # 2. (新) 显示统计摘要
+            st.success(f"🎯 全部审核完成，共 {stats['total_all']} 处错误，总耗时 {stats['elapsed_all']:.2f} 秒。")
+            st.warning(f"⚠️ 共发现 {stats['漏填合同数']} 个合同在记录表中未出现（已排除车管家、联合租赁、驻店）")
+            
+            # 3. (新) 显示所有下载按钮
+            st.divider()
+            st.subheader("📤 下载审核结果文件")
+            
+            # (新) 将下载按钮放入两列
+            cols = st.columns(2)
+            col_idx = 0
+            
+            for (filename, data) in all_files:
+                if filename and data: # 确保文件名和数据都存在
+                    with cols[col_idx % 2]:
+                        st.download_button(
+                            label=f"📥 下载 {filename}",
+                            data=data,
+                            file_name=filename,
+                            key=f"download_btn_{filename}" # 使用唯一key
+                        )
+                    col_idx += 1
+            
+            st.success("✅ 所有检查、标注与导出完成！")
+            
+        except FileNotFoundError as e:
+            st.error(f"❌ 文件查找失败: {e}")
+            st.info("请确保您上传了所有必需的文件（月重卡、放款明细、字段、二次明细）。")
+            st.session_state.audit_run_app1 = False # 出错时重置状态
+        except ValueError as e:
+            st.error(f"❌ Sheet 查找失败: {e}")
+            st.info("请确保您的Excel文件包含必需的 sheet（例如 '威田', '重卡'）。")
+            st.session_state.audit_run_app1 = False
+        except Exception as e:
+            st.error(f"❌ 审核过程中发生未知错误: {e}")
+            st.exception(e)
+            st.session_state.audit_run_app1 = False
