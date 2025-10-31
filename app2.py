@@ -42,10 +42,10 @@ st.title("📊 模拟人事用薪资计算表自动审核系统-1")
 st.image("image/app1(1).png")
 
 # =====================================
-# 📂 上传文件区：要求上传 5 个 xlsx 文件
+# 📂 上传文件区：要求上传 4 个 xlsx 文件
 # =====================================
 uploaded_files = st.file_uploader(
-    "请上传文件名中包含以下字段的文件：记录表、放款明细、字段、二次明细、重卡数据。最后誊写，需检的表为记录表。使用2数据时，记录表中需检sheet的‘租赁期限’需改为‘租赁期限月’，放款明细表中对应的公司名sheet名需改为‘本司’。",
+    "请上传文件名中包含以下字段的文件：记录表、放款明细、字段、二次明细。最后誊写，需检的表为记录表。使用2数据时，记录表中需检sheet的‘租赁期限’需改为‘租赁期限月’，放款明细表中对应的公司名sheet名需改为‘本司’。",
     type="xlsx",
     accept_multiple_files=True
 )
@@ -306,8 +306,7 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict):
     mappings_all = {
         'fk': (mapping_fk, ref_dfs_std_dict['fk']),
         'zd': (mapping_zd, ref_dfs_std_dict['zd']),
-        'ec': (mapping_ec, ref_dfs_std_dict['ec']),
-        'zk': (mapping_zk, ref_dfs_std_dict['zk'])
+        'ec': (mapping_ec, ref_dfs_std_dict['ec'])
     }
     
     total_comparisons = sum(len(m[0]) for m in mappings_all.values())
@@ -464,21 +463,17 @@ main_file = find_file(uploaded_files, "记录表")
 fk_file = find_file(uploaded_files, "放款明细")
 zd_file = find_file(uploaded_files, "字段")
 ec_file = find_file(uploaded_files, "二次明细")
-zk_file = find_file(uploaded_files, "重卡数据")
 
 # 各文件sheet读取（模糊匹配sheet名）
 fk_df = pd.read_excel(pd.ExcelFile(fk_file), sheet_name=find_sheet(pd.ExcelFile(fk_file), "本司"))
 zd_df = pd.read_excel(pd.ExcelFile(zd_file), sheet_name=find_sheet(pd.ExcelFile(zd_file), "重卡"))
 ec_df = pd.read_excel(ec_file)
-zk_df = pd.read_excel(zk_file)
 
 # 合同列定位
 contract_col_fk = find_col(fk_df, "合同")
 contract_col_zd = find_col(zd_df, "合同")
 contract_col_ec = find_col(ec_df, "合同")
-contract_col_zk = find_col(zk_df, "合同")
 
-# 对照字段映射表
 # 对照字段映射表
 
 # --- VVVV (这是旧的，错误的) VVVV ---
@@ -502,7 +497,6 @@ mapping_fk = {
 
 mapping_zd = {"保证金比例": "保证金比例_2", "项目提报人": "提报", "起租时间": "起租日_商", "租赁期限月": "总期数_商_资产", "所属省区": "区域", "城市经理": "城市经理"}
 mapping_ec = {"二次时间": "出本流程时间"}
-mapping_zk = {"授信方": "授信方"}
 
 # =====================================
 # 🚀 (新) 预处理所有参考表
@@ -513,14 +507,12 @@ st.info("ℹ️ 正在预处理参考数据...")
 fk_std = prepare_ref_df(fk_df, mapping_fk, 'fk')
 zd_std = prepare_ref_df(zd_df, mapping_zd, 'zd')
 ec_std = prepare_ref_df(ec_df, mapping_ec, 'ec')
-zk_std = prepare_ref_df(zk_df, mapping_zk, 'zk')
 
 # 将所有预处理过的DF存入字典，传递给检查函数
 ref_dfs_std_dict = {
     'fk': fk_std,
     'zd': zd_std,
-    'ec': ec_std,
-    'zk': zk_std
+    'ec': ec_std
 }
 st.success("✅ 参考数据预处理完成。")
 
