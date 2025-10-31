@@ -567,7 +567,7 @@ else:
     with col2:
         # --- VVVV (【核心修改】按钮逻辑) VVVV ---
         # (新) “重新上传 (Reboot)” 按钮
-        st.button("🔄 重新上传 (Reboot)", on_click=reboot_app1, use_container_width=True)
+        st.button("🔄 先按这个刷新缓存", on_click=reboot_app1, use_container_width=True)
         # --- ^^^^ (修改结束) ^^^^ ---
 
     # (新) 只有在 "开始审核" 被点击后才执行
