@@ -495,7 +495,7 @@ def check_resigned_sheet(sheet_keyword, main_file, resigned_staff_set):
 
     # 1. 读取目标sheet（假设也为第二行为表头, 与 check_one_sheet 保持一致）
     try:
-        main_df = pd.read_excel(xls_main, sheet_name=target_sheet, header=1)
+        main_df = pd.read_excel(xls_main, sheet_name=target_sheet, header=0)
     except Exception as e:
         st.error(f"❌ 读取「{target_sheet}」时出错: {e}")
         return 0, 0
@@ -514,9 +514,8 @@ def check_resigned_sheet(sheet_keyword, main_file, resigned_staff_set):
 
     # 3. 创建临时输出文件 (保留原始表头空行)
     output_path = f"月重卡_{target_sheet}_离职审核版.xlsx"
-    empty_row = pd.DataFrame([[""] * len(main_df.columns)], columns=main_df.columns)
-    pd.concat([empty_row, main_df], ignore_index=True).to_excel(output_path, index=False)
-
+    main_df.to_excel(output_path, index=False)
+    
     # 打开Excel用于写入标注
     wb = load_workbook(output_path)
     ws = wb.active
@@ -556,14 +555,14 @@ def check_resigned_sheet(sheet_keyword, main_file, resigned_staff_set):
     # 标红错误单元格 (提成人员)
     for (row_idx, col_name) in errors_locations:
         if col_name in col_name_to_idx:
-            ws.cell(row_idx + 3, col_name_to_idx[col_name]).fill = red_fill
+            ws.cell(row_idx + 2, col_name_to_idx[col_name]).fill = red_fill
 
     # 标黄有错误的合同号
     if contract_col_main in col_name_to_idx:
         contract_col_excel_idx = col_name_to_idx[contract_col_main]
         error_row_indices = main_df[row_has_error]['__ROW_IDX__']
         for row_idx in error_row_indices:
-            ws.cell(row_idx + 3, contract_col_excel_idx).fill = yellow_fill
+            ws.cell(row_idx + 2, contract_col_excel_idx).fill = yellow_fill
 
     # 7. 导出检查结果
     output = BytesIO()
