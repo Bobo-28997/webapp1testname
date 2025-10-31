@@ -520,7 +520,7 @@ uploaded_files = st.file_uploader(
 )
 
 # =====================================
-# 🚀 (新) 主执行逻辑 (V2 - 缓存修复版)
+# 🚀 (新) 主执行逻辑 (V3 - Reboot 按钮全局可见)
 # =====================================
 
 def reboot_app1():
@@ -545,6 +545,14 @@ def reboot_app1():
 # 主程序开始
 # -------------------------------------
 
+# --- VVVV (【核心修改】把 Reboot 按钮移到最前面) VVVV ---
+# 无论是否上传文件，始终显示 Reboot 按钮
+# (我们用 st.empty() 作为一个小技巧来控制它的位置，或者直接放在 uploader 下面)
+st.button("🔄 重新上传 (Reboot)", on_click=reboot_app1, use_container_width=True)
+st.divider() # 添加一个分隔线
+# --- ^^^^ (修改结束) ^^^^ ---
+
+
 if not uploaded_files or len(uploaded_files) < 4:
     st.warning("⚠️ 请上传所有 4 个文件后继续")
     # (健壮性：如果用户清空了文件, 也重置审核状态)
@@ -554,21 +562,13 @@ if not uploaded_files or len(uploaded_files) < 4:
 else:
     st.success("✅ 文件上传完成")
     
-    # (新) 创建两列用于放置按钮
-    col1, col2 = st.columns(2)
+    # (新) “开始审核”按钮
+    if st.button("🚀 开始审核", type="primary", use_container_width=True):
+        # 将运行状态存入 session state
+        st.session_state.audit_run_app1 = True 
+        # (点击按钮会自动 rerun)
     
-    with col1:
-        # (新) “开始审核”按钮
-        if st.button("🚀 开始审核", type="primary", use_container_width=True):
-            # 将运行状态存入 session state
-            st.session_state.audit_run_app1 = True 
-            # (点击按钮会自动 rerun)
-    
-    with col2:
-        # --- VVVV (【核心修改】按钮逻辑) VVVV ---
-        # (新) “重新上传 (Reboot)” 按钮
-        st.button("🔄 先按这个刷新缓存", on_click=reboot_app1, use_container_width=True)
-        # --- ^^^^ (修改结束) ^^^^ ---
+    # (注意：Reboot 按钮已移到 if 块之外)
 
     # (新) 只有在 "开始审核" 被点击后才执行
     if 'audit_run_app1' in st.session_state and st.session_state.audit_run_app1:
@@ -585,17 +585,17 @@ else:
             st.subheader("📤 下载审核结果文件")
             
             # (新) 将下载按钮放入两列
-            cols_dl = st.columns(2) # (使用新变量名, 避免与 col1/col2 混淆)
+            cols_dl = st.columns(2) 
             col_idx = 0
             
             for (filename, data) in all_files:
-                if filename and data: # 确保文件名和数据都存在
+                if filename and data: 
                     with cols_dl[col_idx % 2]:
                         st.download_button(
                             label=f"📥 下载 {filename}",
                             data=data,
                             file_name=filename,
-                            key=f"download_btn_{filename}" # 使用唯一key
+                            key=f"download_btn_{filename}" 
                         )
                     col_idx += 1
             
@@ -604,7 +604,7 @@ else:
         except FileNotFoundError as e:
             st.error(f"❌ 文件查找失败: {e}")
             st.info("请确保您上传了所有必需的文件（月重卡、放款明细、字段、二次明细）。")
-            st.session_state.audit_run_app1 = False # 出错时重置状态
+            st.session_state.audit_run_app1 = False 
         except ValueError as e:
             st.error(f"❌ Sheet 查找失败: {e}")
             st.info(f"请确保您的Excel文件包含必需的 sheet（例如 '威田', '重卡'）。错误详情: {e}")
