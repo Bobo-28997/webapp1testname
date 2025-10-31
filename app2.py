@@ -37,7 +37,7 @@ def normalize_contract_key(series: pd.Series) -> pd.Series:
 # =====================================
 # 🏁 应用标题与说明
 # =====================================
-st.title("📊 模拟人事用薪资计算表自动审核系统-1")
+st.title("📊 模拟人事用薪资计算表自动审核系统-1重卡")
 
 st.image("image/app1(1).png")
 
@@ -45,7 +45,7 @@ st.image("image/app1(1).png")
 # 📂 上传文件区：要求上传 4 个 xlsx 文件
 # =====================================
 uploaded_files = st.file_uploader(
-    "请上传文件名中包含以下字段的文件：记录表、放款明细、字段、二次明细。最后誊写，需检的表为记录表。",
+    "请上传文件名中包含以下字段的文件：月重卡、放款明细、字段、二次明细。最后誊写，需检的表为文件名包含‘月重卡’字段的表。",
     type="xlsx",
     accept_multiple_files=True
 )
@@ -280,7 +280,7 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict):
         return 0, None, 0, set()
 
     # 3. 创建临时输出文件 (保留原始表头空行)
-    output_path = f"记录表_{sheet_keyword}_审核标注版.xlsx"
+    output_path = f"月重卡_{sheet_keyword}_审核标注版.xlsx"
     empty_row = pd.DataFrame([[""] * len(main_df.columns)], columns=main_df.columns)
     # 注意：这里我们保存的是原始main_df
     pd.concat([empty_row, main_df], ignore_index=True).to_excel(output_path, index=False)
@@ -477,7 +477,7 @@ def check_one_sheet(sheet_keyword, main_file, ref_dfs_std_dict):
 # =====================================
 # 📖 文件读取：按关键字识别五份文件
 # =====================================
-main_file = find_file(uploaded_files, "记录表")
+main_file = find_file(uploaded_files, "月重卡")
 fk_file = find_file(uploaded_files, "放款明细")
 zd_file = find_file(uploaded_files, "字段")
 ec_file = find_file(uploaded_files, "二次明细")
